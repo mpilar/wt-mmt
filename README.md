@@ -34,6 +34,8 @@ To use this webtask:
 
 Tadah! Get notified when packages arrive!
 
+If you need to clear the webtask storage use `command=clear` and if you want to see what's in the storage use `command=dump`.
+
 
 ## TODOs
 Other than the TODOs in the code, there are a few overall tasks left:
