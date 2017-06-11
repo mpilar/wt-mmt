@@ -172,6 +172,7 @@ class Emailer {
 
 class SendgridEmailer extends Emailer {
     constructor (configObj) {
+        super();
         this.configObj = configObj;
         if (!configObj.MAIL_SG_API_KEY) {return null;}
         this.sendgrid = require('sendgrid')(configObj.MAIL_SG_API_KEY);
@@ -199,6 +200,7 @@ class SendgridEmailer extends Emailer {
 
 class NodemailerEmailer extends Emailer {
     constructor (configObj) {
+        super();
         this.configObj = configObj;
         if (!configObj.MAIL_USER) {return null;}
         this.options = {
