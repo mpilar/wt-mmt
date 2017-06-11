@@ -2,7 +2,8 @@
 "use strict";
 
 const shipit = require('shipit');
-const nodemailer = require('nodemailer');
+const nodemailer = false; //removed require('nodemailer'), failing to compile on webtask.io;
+
 
 const SEARCH_REGEX = new RegExp(["1Z[0-9A-Z]{16}|(H|T|J|K|F|W|M|Q|A)\\d{10}|1\\d{2}-\\d{7}-\\d{7}:\\d{13}|",
                                  "02\\d{18}|02\\d{18}|DT\\d{12}|927489\\d{16}|926129\\d{16}|",
@@ -14,7 +15,7 @@ const AMZN_REGEX = /(?:orderId=)([^&]+).+(?:shipmentId=)([^&]+)/g
 
 
 module.exports = function (ctx, cb) {
-    let carriers = configCarriers(ctx);
+    let carriers = configCarriers(ctx.secrets);
 
     let command = ctx.data.command || "default";
     
@@ -30,10 +31,11 @@ module.exports = function (ctx, cb) {
                 if (!data || !data.done_packages) return cb(null, {code: 200, name: "Success", message: "No mail updates to send."});
                 let done_packages = data.done_packages;
                 if (done_packages.length) {
-                    let mailer = createMailTransporterFromContext(ctx);
-                    if (!mailer) return cb(null, {code: 500, name: "No mailer configured", message: "No mailer is configured."});
+                    //let mailer = createMailTransporterFromContext(ctx);
+                    let mailer = Emailer.getMailerFromSecrets(ctx.secrets);
+                    if (!mailer) return cb(null, {code: 500, name: "Configuration Error", message: "No mailer is configured."});
                     for(var pack of done_packages) {
-                        mailer.sendMail(createMailOptions(ctx, data, pack), (error, info) => {
+                        mailer.sendMail(pack, (error, info) => {
                             if(error) return console.log(error);
                             console.log(info);
                         });
@@ -148,75 +150,131 @@ module.exports = function (ctx, cb) {
     }
 };
 
-function createMailTransporterFromContext (ctx) {
-    if (!ctx.secrets.MAIL_USER) {return null;}
-    let options = {
-        auth: {
-            user: ctx.secrets.MAIL_USER,
-            pass: ctx.secrets.MAIL_PASSWORD
+class Emailer {
+    constructor(configObj) {
+        return;
+    }
+    sendMail(trackingInfo, callback) {
+        return false;
+    }
+    createMailOptions (trackingInfo) {
+        return false;
+    }
+    static getMailerFromSecrets(secrets) {
+        if(nodemailer) {
+            return new NodemailerEmailer(secrets);
+        } else {
+            return new SendgridEmailer(secrets);
         }
     }
-    if (ctx.secrets.MAIL_SERVICE) {
-        options.service = ctx.secrets.MAIL_SERVICE;
-    }
-    if (ctx.secrets.MAIL_HOST) {
-        options.host = ctx.secrets.MAIL_HOST;
-    }
-    if (ctx.secrets.MAIL_PORT) {
-        options.host = parseInt(ctx.secrets.MAIL_PORT);
-    }
-    if (ctx.secrets.MAIL_SECURE) {
-        options.host = true;
-    }
-    return nodemailer.createTransport( options );
 }
 
-function createMailOptions (ctx, data, trackingInfo) {
-    return {
-        from: ctx.secrets.MAIL_FROM_ADDRESS || ctx.secrets.MAIL_USER,
-        to: ctx.secrets.MAIL_TO || ctx.secrets.MAIL_USER,
-        subject: ctx.secrets.MAIL_SUBJECT || "Mail delivery",
-        text: "You received the package with Tracking Number: " + trackingInfo.trackingID + " from " + trackingInfo.carrier
+
+class SendgridEmailer extends Emailer {
+    constructor (configObj) {
+        this.configObj = configObj;
+        if (!configObj.MAIL_SG_API_KEY) {return null;}
+        this.sendgrid = require('sendgrid')(configObj.MAIL_SG_API_KEY);
+        this.helper = require('sendgrid').mail;
+    }
+
+    createMailOptions (trackingInfo) {
+        const fromEmail = new helper.Email(this.configObj.MAIL_FROM_ADDRESS || this.configObj.MAIL_USER);
+        const toEmail = new helper.Email(this.configObj.MAIL_TO || this.configObj.MAIL_USER);
+        const subject = this.configObj.MAIL_SUBJECT || "Mail delivery";
+        const content = new helper.Content('text/plain', "You received the package with Tracking Number: " + trackingInfo.trackingID + " from " + trackingInfo.carrier)
+        return new helper.Mail(fromEmail, subject, toEmail, content);
+    }
+    sendMail(trackingInfo, callback) {
+        let mail = createMailOptions(trackingInfo);
+        let request = this.sendgrid.emptyRequest({
+            method: 'POST',
+            path: '/v3/mail/send',
+            body:mail.toJSON()
+        });
+        this.sendgrid.API(request, callback);
     }
 }
 
-function configCarriers(ctx) {
+
+class NodemailerEmailer extends Emailer {
+    constructor (configObj) {
+        this.configObj = configObj;
+        if (!configObj.MAIL_USER) {return null;}
+        this.options = {
+            auth: {
+                user: configObj.MAIL_USER,
+                pass: configObj.MAIL_PASSWORD
+            }
+        }
+        if (configObj.MAIL_SERVICE) {
+            options.service = configObj.MAIL_SERVICE;
+        }
+        if (configObj.MAIL_HOST) {
+            options.host = configObj.MAIL_HOST;
+        }
+        if (configObj.MAIL_PORT) {
+            options.host = parseInt(configObj.MAIL_PORT);
+        }
+        if (configObj.MAIL_SECURE) {
+            options.host = true;
+        }
+        this.mailer = nodemailer.createTransport( this.options );
+    }
+
+    createMailOptions (trackingInfo) {
+        return {
+            from: this.configObj.MAIL_FROM_ADDRESS || this.configObj.MAIL_USER,
+            to: this.configObj.MAIL_TO || this.configObj.MAIL_USER,
+            subject: this.configObj.MAIL_SUBJECT || "Mail delivery",
+            text: "You received the package with Tracking Number: " + trackingInfo.trackingID + " from " + trackingInfo.carrier
+        }
+    }
+
+    sendMail(trackingInfo, callback) {
+        this.mailer.sendMail(createMailOptions(trackingInfo), callback);
+    }
+}
+
+
+function configCarriers(configObj) {
     //TODO: make this more based on convention, try to lessen code duplication.
     let carriers = {}
-    if (ctx.secrets.UPS_ENABLED) {
+    if (configObj.UPS_ENABLED) {
         carriers["ups"] = new shipit.UpsClient( {
-                        licenseNumber: ctx.secrets.UPS_LICENSE_NUMBER,
-                        userId: ctx.secrets.UPS_USERID,
-                        password: ctx.secrets.UPS_PASSWORD
+                        licenseNumber: configObj.UPS_LICENSE_NUMBER,
+                        userId: configObj.UPS_USERID,
+                        password: configObj.UPS_PASSWORD
         });
     }
-    if (ctx.secrets.FEDEX_ENABLED) {
+    if (configObj.FEDEX_ENABLED) {
         carriers["fedex"] = new shipit.FedexClient( {
-                        key: ctx.secrets.FEDEX_KEY,
-                        password: ctx.secrets.FEDEX_PASSWORD,
-                        account: ctx.secrets.FEDEX_ACCOUNT,
-                        meter: ctx.secrets.FEDEX_METER
+                        key: configObj.FEDEX_KEY,
+                        password: configObj.FEDEX_PASSWORD,
+                        account: configObj.FEDEX_ACCOUNT,
+                        meter: configObj.FEDEX_METER
         });
     }
-    if (ctx.secrets.USPS_ENABLED) {
+    if (configObj.USPS_ENABLED) {
         carriers["usps"] = new shipit.UspsClient( {
-                        userId: ctx.secrets.USPS_USERID,
-                        clientIp: ctx.secrets.USPS_clientIp || "127.0.0.1"
+                        userId: configObj.USPS_USERID,
+                        clientIp: configObj.USPS_clientIp || "127.0.0.1"
         });
     }
-    if (ctx.secrets.DHL_ENABLED) {
+    if (configObj.DHL_ENABLED) {
         carriers["dhl"] = new shipit.DhlClient( {
-                        userId: ctx.secrets.DHL_USERID,
-                        password: ctx.secrets.DHL_PASSWORD
+                        userId: configObj.DHL_USERID,
+                        password: configObj.DHL_PASSWORD
         });
     }
-    if (ctx.secrets.LASERSHIP_ENABLED) {
+    if (configObj.LASERSHIP_ENABLED) {
         carriers["lasership"] = new shipit.LasershipClient();
     }
-    if (ctx.secrets.AMAZON_ENABLED) {
+    if (configObj.AMAZON_ENABLED) {
         //TODO: amazon carrier seems to not be working, dive into shipit to figure it out
         carriers["amazon"] = new shipit.AmazonClient();
     }
     //TODO: Add more carriers
     return carriers;
 }
+
