@@ -28,7 +28,7 @@ There are many configuration options. See [`configCarriers`](https://github.com/
 
 To use this webtask:
 
-1. Create an IFTTT Gmail (or other provider) applet that makes a "Maker Webhook" POST call and includes the `BodyPlain` ingredient in a json.
+1. Create an IFTTT Gmail (or other provider) applet that makes a "Maker Webhook" POST call and includes the `BodyPlain` ingredient as the body element of a json `{"body": "BodyPlain"}`.
 2. Create a cron to update (needs `command=cron-update`) which gets the tracking information from various APIs
 3. Create another cron to send the emails (uses `command=cron-email`)
 
@@ -40,7 +40,7 @@ If you need to clear the webtask storage use `command=clear` and if you want to 
 ## TODOs
 Other than the TODOs in the code, there are a few overall tasks left:
 
-- **Security**: Oh god I really need to review the security model for this, althogh it behaves sufficiently like a black box (should leak nothing to anyone that stumbles into it on the wild)
+- **Security**: Oh god I really need to review the security model for this, althogh it behaves sufficiently like a black box (should leak nothing useful to anyone that stumbles into it on the wild)
 - Cleanup the config code.
 - The `cron-update` code saves state too many times. (Possible solution `async` module)
 - Now that I think about it, some mail packages get stuck in the initial state for a really long time, date tracking should be added so that old tracking numbers can be automatically deleted.
