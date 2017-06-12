@@ -22,7 +22,7 @@ Several secrets are configurable:
 - `MAIL_SUBJECT` - Custom subject to use for email being sent.
 
 #### shipit Carrier configuration
-There are many configuration options. See [`configCarriers`](https://github.com/mpilar/wt-mmt/blob/master/mmt-main.js#L183) for details.
+There are many configuration options. See [`configCarriers`](https://github.com/mpilar/wt-mmt/blob/master/mmt-main.js#L52) for details.
 
 ## How to use
 
